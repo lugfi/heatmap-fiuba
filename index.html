@@ -29,6 +29,7 @@
     <h1>Heatmap FIUBA</h1>
     <div id="chart"></div>
     <div id="dataset-picker"></div>
+    <div id="carrera-picker"></div>
     <a href="https://github.com/lugfi/heatmap-fiuba"><img style="position: absolute; top: 0; right: 0; border: 0;" src="https://camo.githubusercontent.com/38ef81f8aca64bb9a64448d0d70f1308ef5341ab/68747470733a2f2f73332e616d617a6f6e6177732e636f6d2f6769746875622f726962626f6e732f666f726b6d655f72696768745f6461726b626c75655f3132313632312e706e67" alt="Fork me on GitHub" data-canonical-src="https://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png"></a>
     <script type="text/javascript">
       var margin = { top: 50, right: 0, bottom: 100, left: 30 },
@@ -40,7 +41,9 @@
           colors = ["#ffffd9","#edf8b1","#c7e9b4","#7fcdbb","#41b6c4","#1d91c0","#225ea8","#253494","#081d58"], // alternatively colorbrewer.YlGnBu[9]
           days = ["Lu", "Ma", "Mi", "Ju", "Vi", "Sa", "Do"],
           times = ["1a", "2a", "3a", "4a", "5a", "6a", "7a", "8a", "9a", "10a", "11a", "12a", "1p", "2p", "3p", "4p", "5p", "6p", "7p", "8p", "9p", "10p", "11p", "12p"];
-          datasets = ["Horarios_1Q2017.json", "Horarios_1Q2016.json", "Horarios_2Q2016.json", "Horarios_1Q2015.json", "Horarios_2Q2015.json", "Horarios_2Q2014.json"];
+      var datasets = ["Horarios_1Q2017.json", "Horarios_1Q2016.json", "Horarios_2Q2016.json", "Horarios_1Q2015.json", "Horarios_2Q2015.json", "Horarios_2Q2014.json"];
+      var carreras = ["Civil", "Industrial", "Naval", "Agrim", "[ROTO]", "Electricista", "Electrónica", "Química", "Sistemas", "Informática", "Alimentos", "Ing. Agrim"];
+      var globalData = null;
 
       var svg = d3.select("#chart").append("svg")
           .attr("width", width + margin.left + margin.right)
@@ -68,36 +71,7 @@
             .attr("transform", "translate(" + gridSize * 2 / 2 + ", -6)")
             .attr("class", function(d, i) { return ((i >= 7 && i <= 16) ? "timeLabel mono axis axis-worktime" : "timeLabel mono axis"); });
 
-      var heatmapChart = function(jsonFile) {
-        d3.json(jsonFile,
-        function(error, d) {
-          var data = d.materias.map(function(m) {
-            return m.cursos.map(function(cu) {
-              return cu.clases.map(function(cl) {
-                var horas = [];
-                for (var i = 0; i < cl.fin - cl.inicio; i++) {
-                  horas.push(i);
-                }
-                return horas.map(function(h) {
-                  return {
-                    day: cl.dia + 1,
-                    hour: (cl.inicio + h) / 2 + 7
-                  };
-                });
-              }).reduce(function(a, b) { return a.concat(b); });
-            }).reduce(function(a, b) { return a.concat(b); });
-          }).reduce(function(a, b) { return a.concat(b); });
-          data = d3.nest()
-            .key(function(d) { return d.day + "/" + d.hour; })
-            .rollup(function(v) { return v.length; })
-            .entries(data)
-            .map(function(d) {
-              return {
-                day: d.key.split("/")[0],
-                hour: d.key.split("/")[1],
-                value: d.values
-              }
-            });
+      var heatmapChart = function(data) {
           var colorScale = d3.scale.quantile()
               .domain([0, buckets - 1, d3.max(data, function (d) { return d.value; })])
               .range(colors);
@@ -146,12 +120,43 @@
             .attr("y", height + gridSize);
 
           legend.exit().remove();
-
-        });  
       };
-
-      heatmapChart(datasets[0]);
       
+      var transformData = function(materias) {
+          var data = materias.map(function(m) {
+            return m.cursos.map(function(cu) {
+              return cu.clases.map(function(cl) {
+                var horas = [];
+                for (var i = 0; i < cl.fin - cl.inicio; i++) {
+                  horas.push(i);
+                }
+                return horas.map(function(h) {
+                  return {
+                    day: cl.dia + 1,
+                    hour: (cl.inicio + h) / 2 + 7
+                  };
+                });
+              }).reduce(function(a, b) { return a.concat(b); });
+            }).reduce(function(a, b) { return a.concat(b); });
+          }).reduce(function(a, b) { return a.concat(b); });
+          return d3.nest()
+            .key(function(d) { return d.day + "/" + d.hour; })
+            .rollup(function(v) { return v.length; })
+            .entries(data)
+            .map(function(d) {
+              return {
+                day: d.key.split("/")[0],
+                hour: d.key.split("/")[1],
+                value: d.values
+              }
+            });
+      }
+
+      d3.json(datasets[0], function(data) {
+        globalData = data;
+        heatmapChart(transformData(data.materias));
+      });
+
       var datasetpicker = d3.select("#dataset-picker").selectAll(".dataset-button")
         .data(datasets);
 
@@ -161,7 +166,22 @@
         .attr("type", "button")
         .attr("class", "dataset-button")
         .on("click", function(d) {
-          heatmapChart(d);
+          d3.json(d, function(data) {
+            globalData = data;
+            heatmapChart(transformData(data.materias));
+          });
+        });
+
+      var carrerapicker = d3.select("#carrera-picker").selectAll(".carrera-button")
+        .data(carreras);
+
+      carrerapicker.enter()
+        .append("input")
+        .attr("value", function(d, i){ return d })
+        .attr("type", "button")
+        .attr("class", "carrera-button")
+        .on("click", function(d, i) {
+          heatmapChart(transformData(globalData.carreras[i].materias.map(function(m) { return globalData.materias[m] })));
         });
     </script>
   </body>
